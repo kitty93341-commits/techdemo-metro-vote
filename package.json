@@ -1,1 +1,1 @@
-{"name":"oldprodigy-220-backend","version":"2.0.0","private":true,"main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"express":"^4.21.2","socket.io":"1.7.4"}}
+{"name":"oldprodigy-220-backend","version":"3.0.0","private":true,"main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"express":"4.21.2","socket.io":"1.7.4"}}
