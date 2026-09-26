@@ -1,66 +1,108 @@
 const express=require('express');
 const http=require('http');
-const {Server}=require('socket.io');
+const socketio=require('socket.io');
 
 const app=express();
 app.use(express.json({limit:'2mb'}));
 const server=http.createServer(app);
-
-const io=new Server(server,{
+const io=socketio(server,{
   path:'/multiplayer-api/socket.io/',
-  cors:{origin:'*'},
+  origins:'*:*',
   transports:['websocket','polling']
 });
 
-app.get('/',(req,res)=>res.type('html').send('<!doctype html><title>Old Prodigy 2.20 Backend</title><h1>Old Prodigy 2.20 Backend Online</h1><p>Socket.IO: <code>/multiplayer-api/socket.io/</code></p><p><a href="/status">Status</a> · <a href="/worlds">Worlds</a></p>'));
-app.get('/status',(req,res)=>res.json({ok:true,service:'oldprodigy-220-backend',socketPath:'/multiplayer-api/socket.io/',players:players.size}));
-app.get('/worlds',(req,res)=>res.json({worlds:[{id:1,name:'World 1',serverId:1,online:true,players:players.size}]}));
-
 const players=new Map();
 const rooms=new Map();
-function roomFor(worldId){const key=String(worldId||1); if(!rooms.has(key)) rooms.set(key,new Set()); return rooms.get(key);}
-function snapshot(exceptId,worldId){const room=roomFor(worldId); return [...room].map(id=>players.get(id)).filter(Boolean).filter(p=>p.userID!==exceptId);}
+function key(v){return String(v==null||v===''?'1':v);}
+function roomFor(zone){zone=key(zone);if(!rooms.has(zone))rooms.set(zone,new Set());return rooms.get(zone);}
+function roomName(zone){return 'zone:'+key(zone);}
+function ids(except,zone){return Array.from(roomFor(zone)).filter(id=>id!==except);}
 
-io.on('connection',socket=>{
+app.get('/',(req,res)=>res.type('html').send('<!doctype html><title>Old Prodigy 2.20 Backend</title><h1>Old Prodigy 2.20 Backend Online</h1><p>Socket.IO 1.x multiplayer backend</p><p><a href="/status">Status</a> · <a href="/worlds">Worlds</a></p>'));
+app.get('/status',(req,res)=>res.json({ok:true,service:'oldprodigy-220-backend',socketPath:'/multiplayer-api/socket.io/',players:players.size,rooms:rooms.size}));
+app.get('/worlds',(req,res)=>res.json({worlds:[{id:1,name:'World 1',serverId:1,online:true,players:players.size}]}));
+
+function sendPlayerList(socket,zone){socket.emit('playerList',ids(socket.data.userId,zone));}
+function announceJoin(socket,zone){socket.to(roomName(zone)).emit('playerJoined',socket.data.userId);}
+function announceLeave(socket,zone,id){socket.to(roomName(zone)).emit('playerLeft',id);}
+function cleanup(socket){
+  const id=socket.data&&socket.data.userId;
+  const zone=socket.data&&socket.data.zone;
+  if(!id)return;
+  const p=players.get(id);
+  if(p && p.socketId===socket.id)players.delete(id);
+  if(zone)roomFor(zone).delete(id);
+  if(zone)announceLeave(socket,zone,id);
+}
+
+io.on('connection',function(socket){
   const q=socket.handshake.query||{};
-  const id=String(q.userId||q.userID||socket.id);
-  const worldId=String(q.worldId||q.worldID||1);
-  const player={userID:id,worldID:worldId,socketID:socket.id,x:Number(q.x)||0,y:Number(q.y)||0};
-  players.set(id,player); roomFor(worldId).add(id);
-  socket.data.playerId=id; socket.data.worldId=worldId;
+  const id=key(q.userId||q.userID||socket.id);
+  const zone=key(q.zone||q.zoneName||q.worldId||q.worldID||'1');
+  socket.data={userId:id,zone:zone};
+  players.set(id,{userID:id,socketId:socket.id,zone:zone,info:null,lastMove:null});
+  socket.join(roomName(zone));
 
-  socket.emit('playerList',snapshot(id,worldId));
-  socket.to('world:'+worldId).emit('playerJoined',player);
-  socket.join('world:'+worldId);
+  // The 2.20 client expects IDs here, not player objects.
+  sendPlayerList(socket,zone);
+  // Existing clients receive the ID and respond with their full "info" packet.
+  announceJoin(socket,zone);
 
-  socket.on('playerUpdate',data=>{
-    if(data&&typeof data==='object'){
-      if(Number.isFinite(Number(data.x))) player.x=Number(data.x);
-      if(Number.isFinite(Number(data.y))) player.y=Number(data.y);
-      if(data.worldID!=null && String(data.worldID)!==worldId) return;
-    }
-    socket.to('world:'+worldId).emit('playerUpdate',player);
-  });
-  socket.on('message',msg=>socket.to('world:'+worldId).emit('message',msg));
-  socket.on('joinWorld',next=>{
-    const nextId=String(next&&next.worldID||next&&next.worldId||1);
-    socket.leave('world:'+worldId);
-    roomFor(worldId).delete(id);
-    const oldWorld=worldId;
-    player.worldID=nextId;
-    roomFor(nextId).add(id);
-    socket.join('world:'+nextId);
-    socket.emit('playerList',snapshot(id,nextId));
-    socket.to('world:'+oldWorld).emit('playerLeft',id);
-    socket.to('world:'+nextId).emit('playerJoined',player);
-  });
-  socket.on('disconnect',()=>{
+  socket.on('message',function(msg){
+    if(!msg || typeof msg!=='object')return;
+    const action=msg.action;
+    const data=msg.data||{};
     const p=players.get(id);
-    players.delete(id);
-    roomFor(worldId).delete(id);
-    socket.to('world:'+worldId).emit('playerLeft',id);
+    if(!p)return;
+
+    // Never allow one client to impersonate another player in our state.
+    if(data.userID!=null && String(data.userID)!==id)return;
+    if(data.userID==null)data.userID=id;
+
+    if(action==='info')p.info=msg;
+    else if(action==='move')p.lastMove=msg;
+    else if(action==='change'){
+      if(p.info && p.info.data){
+        p.info.data.appearance=data.appearance||p.info.data.appearance;
+        p.info.data.equipment=data.equipment||p.info.data.equipment;
+        p.info.data.mount=data.mount||p.info.data.mount;
+      } else p.info=msg;
+    }
+
+    // Forward the exact protocol packet expected by the old client.
+    socket.to(roomName(socket.data.zone)).emit('message',msg);
   });
+
+  socket.on('joinZone',function(next){
+    let nextZone;
+    if(typeof next==='string')nextZone=next;
+    else if(next&&typeof next==='object')nextZone=next.zoneName||next.zone||next.id||next.worldId;
+    nextZone=key(nextZone||socket.data.zone);
+    const oldZone=socket.data.zone;
+    if(nextZone===oldZone){sendPlayerList(socket,nextZone);announceJoin(socket,nextZone);return;}
+
+    socket.leave(roomName(oldZone));
+    roomFor(oldZone).delete(id);
+    announceLeave(socket,oldZone,id);
+
+    socket.data.zone=nextZone;
+    const p=players.get(id);
+    if(p)p.zone=nextZone;
+    roomFor(nextZone).add(id);
+    socket.join(roomName(nextZone));
+    sendPlayerList(socket,nextZone);
+    announceJoin(socket,nextZone);
+  });
+
+  socket.on('leaveZone',function(){
+    const zone=socket.data.zone;
+    roomFor(zone).delete(id);
+    socket.leave(roomName(zone));
+    announceLeave(socket,zone,id);
+  });
+
+  socket.on('disconnect',function(){cleanup(socket);});
 });
 
 const port=process.env.PORT||10000;
-server.listen(port,'0.0.0.0',()=>console.log(`listening on ${port}`));
+server.listen(port,'0.0.0.0',()=>console.log('Old Prodigy 2.20 backend listening on '+port));

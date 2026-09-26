@@ -1,18 +1,12 @@
-# Old Prodigy 2.20 replacement backend starter
+# Old Prodigy 2.20 multiplayer backend
+
+Designed for the archived 2.20 client, which bundles Socket.IO 1.3.5.
 
 ## Render
-Build command:
-`npm install`
+- Service type: Web Service
+- Build: `npm install`
+- Start: `npm start`
 
-Start command:
-`node server.js`
+The server listens on Render's `PORT` and binds to `0.0.0.0`.
 
-The service listens on Render's `$PORT`.
-
-## Endpoints
-- `/` health/status page
-- `/status` JSON health status
-- `/worlds` basic world list
-- `/multiplayer-api/socket.io/` Socket.IO endpoint
-
-This is a replacement multiplayer starter, not a complete recreation of every historical Prodigy server/API.
+Socket path: `/multiplayer-api/socket.io/`
