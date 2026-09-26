@@ -1,1 +1,8 @@
-{"name":"oldprodigy-220-backend","version":"4.0.0","private":true,"main":"server.js","scripts":{"start":"node server.js"},"dependencies":{"express":"4.21.2","socket.io":"1.3.5"}}
+{
+  "name": "oldprodigy-220-multiplayer",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {"start":"node server.js"},
+  "dependencies": {"express":"4.18.3","socket.io":"1.3.7"}
+}

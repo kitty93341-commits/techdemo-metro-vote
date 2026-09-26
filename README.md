@@ -1,5 +1,18 @@
-# Old Prodigy 2.20 multiplayer backend
+# Old Prodigy 2.20 replacement backend starter
 
-Deploy as a Render Web Service with start command `npm start`.
+## Render
+Build command:
+`npm install`
 
-This server intentionally uses Socket.IO 1.3.5 to match the old 2.20 client and implements the client's `message`, `playerList`, `playerJoined`, `playerLeft`, `joinZone`, and `leaveZone` events.
+Start command:
+`node server.js`
+
+The service listens on Render's `$PORT`.
+
+## Endpoints
+- `/` health/status page
+- `/status` JSON health status
+- `/worlds` basic world list
+- `/multiplayer-api/socket.io/` Socket.IO endpoint
+
+This is a replacement multiplayer starter, not a complete recreation of every historical Prodigy server/API.
